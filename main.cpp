@@ -39,7 +39,7 @@ public:
       return false;
     ele = data[ind];
     ind = (ind+1)%size;
-    readIndex.store(ind, std::memory_order_relaxed);
+    readIndex.store(ind, std::memory_order_release);
     return true;
   }
   bool front(T& ele)
