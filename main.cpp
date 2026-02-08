@@ -14,7 +14,9 @@ class Spsc
 {
 private:
   std::atomic<size_t> writeIndex{0u}; //The index that is avilable for writing
+  char padding1[ 248 ]; /* force read_index and write_index to different cache lines */
   std::atomic<size_t> readIndex{0u}; // The index that is about to be read
+  char padding1[ 248 ]; /* force read_index and write_index to different cache lines */
   std::size_t size;
   std::vector<T> data;
 public:
