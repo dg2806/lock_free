@@ -16,7 +16,7 @@
             "request": "launch",
             "program": "${workspaceFolder}/build/out",
             "args": [],
-            "stopAtEntry": false,
+            "stopAtEntry": true,
             "cwd": "${workspaceFolder}",
             "MIMode": "lldb"
         },

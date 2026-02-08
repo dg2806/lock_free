@@ -18,13 +18,13 @@ private:
   std::size_t size;
   std::vector<T> data;
 public:
-  Spsc(size_t maxSize) : size(maxSize) { data.reserve(maxSize); }
+  Spsc(size_t maxSize) : size(maxSize) { data.resize(maxSize); }
   bool push(const T& ele)
   {
     size_t curHead = writeIndex.load(std::memory_order_relaxed);
-    if (curHead >= size)
+    if (curHead - readIndex.load(std::memory_order_relaxed) >= size)
       return false;
-    data.push_back(ele);
+    data[writeIndex % size] = ele;
     writeIndex.store(curHead+1, std::memory_order_release);
     return true;
   }
@@ -34,7 +34,7 @@ public:
     size_t curHead = writeIndex.load(std::memory_order_acquire);
     if (ind >= curHead)
       return false;
-    ele = data[ind];
+    ele = data[ind%size];
     readIndex.store(ind+1, std::memory_order_relaxed);
     return true;
   }
@@ -44,23 +44,23 @@ public:
     size_t curHead = writeIndex.load(std::memory_order_acquire);
     if (ind >= curHead)
       return false;
-    ele = data[ind];
+    ele = data[ind%size];
     return true;
   }
-  bool isFull() { return writeIndex.load(std::memory_order_acquire) >= size; }
+  bool isFull() { return writeIndex.load(std::memory_order_acquire) - readIndex.load(std::memory_order_acquire) >= size; }
 };
 
 
-void consumer(Spsc<int>& spsc)
+void consumer(Spsc<size_t>& spsc, const size_t cnt)
 {
   std::random_device r;
   std::default_random_engine e1(r());
   std::uniform_int_distribution<int> uniform_dist(1, 3);
-  int l = 0;
-  for (int i = 0; i < 1000; i++)
+  size_t l = 0;
+  for (size_t i = 0; i < cnt; i++)
   {
-    std::this_thread::sleep_for(std::chrono::microseconds(uniform_dist(e1)));
-    int ele = 0;
+//    std::this_thread::sleep_for(std::chrono::microseconds(uniform_dist(e1)));
+    size_t ele = 0;
     bool success = spsc.pop(ele);
     if (success)
     {
@@ -72,28 +72,35 @@ void consumer(Spsc<int>& spsc)
   std::cout << "consumed " << l << std::endl;
 }
 
-void producer(Spsc<int>& spsc, const std::vector<int>& v)
+void producer(Spsc<size_t>& spsc, const size_t cnt)
 {
   std::random_device r;
   std::default_random_engine e1(r());
-  std::uniform_int_distribution<int> uniform_dist(1, 40);
-
-  for (int i = 0; i < 1000; i++)
+  std::uniform_int_distribution<int> uniform_dist(1, 20);
+  int l = 0;
+  for (size_t i = 0; i < cnt; i++)
   {
-    std::this_thread::sleep_for(std::chrono::microseconds(uniform_dist(e1)));
-    spsc.push(v[i]);
+//    std::this_thread::sleep_for(std::chrono::microseconds(uniform_dist(e1)));
+    bool success = spsc.push(l);
+    if (success)
+      l++;
   }
 }
 
 
 void testRandom()
 {
+  std::vector<int> a(1000, 0);
+  auto start = std::chrono::high_resolution_clock::now();
   std::random_device r;
-   std::default_random_engine e1(r());
+  std::default_random_engine e1(r());
   std::uniform_int_distribution<int> uniform_dist(1, 6);
-  for (int i = 0 ; i < 10; i++)
-    std::cout << uniform_dist(e1) << std::endl;;
-}
+  for (size_t i = 0 ; i < 1000; i++)
+    a[i] = uniform_dist(e1);
+  auto end = std::chrono::high_resolution_clock::now();
+  auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+  std::cout << "Execution time: " << duration.count() << " microseconds" << std::endl;
+  }
 
 int main()
 {
@@ -101,13 +108,18 @@ int main()
     testRandom();
   if (true)
   {
-    Spsc<int> spsc(1024u);
-    std::vector<int> a(1000, 0);
+    Spsc<size_t> spsc(1024u);
+    size_t cnt = 1024*1024;
+    std::vector<size_t> a(cnt, 0);
     for (size_t i = 1; i < a.size(); i++)
       a[i] = a[i-1] + 1;
-    std::thread p(producer, std::ref(spsc), std::cref(a));
-    std::thread c(consumer, std::ref(spsc));
+    auto start = std::chrono::high_resolution_clock::now();
+    std::thread p(producer, std::ref(spsc), cnt);
+    std::thread c(consumer, std::ref(spsc), cnt);
     c.join(), p.join();
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+    std::cout << "Execution time: " << duration.count() << " microseconds" << std::endl;
   }
   return 0;
 }
