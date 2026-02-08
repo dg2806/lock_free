@@ -16,40 +16,42 @@ private:
   std::atomic<size_t> writeIndex{0u}; //The index that is avilable for writing
   char padding1[ 248 ]; /* force read_index and write_index to different cache lines */
   std::atomic<size_t> readIndex{0u}; // The index that is about to be read
-  char padding1[ 248 ]; /* force read_index and write_index to different cache lines */
+  char padding2[ 248 ]; /* force read_index and write_index to different cache lines */
   std::size_t size;
   std::vector<T> data;
 public:
-  Spsc(size_t maxSize) : size(maxSize) { data.resize(maxSize); }
+  Spsc(size_t maxSize) : size(maxSize+1) { data.resize(maxSize+1); }
   bool push(const T& ele)
   {
     size_t curHead = writeIndex.load(std::memory_order_relaxed);
-    if (curHead - readIndex.load(std::memory_order_relaxed) >= size)
+    if (readIndex.load(std::memory_order_relaxed) == (curHead + 1u)%size)
       return false;
-    data[writeIndex % size] = ele;
-    writeIndex.store(curHead+1, std::memory_order_release);
+    data[curHead] = ele;
+    curHead = (curHead+1)%size;
+    writeIndex.store(curHead, std::memory_order_release);
     return true;
   }
   bool pop(T& ele)
   {
     size_t ind = readIndex.load(std::memory_order_relaxed);
     size_t curHead = writeIndex.load(std::memory_order_acquire);
-    if (ind >= curHead)
+    if (ind == curHead)
       return false;
-    ele = data[ind%size];
-    readIndex.store(ind+1, std::memory_order_relaxed);
+    ele = data[ind];
+    ind = (ind+1)%size;
+    readIndex.store(ind, std::memory_order_relaxed);
     return true;
   }
   bool front(T& ele)
   {
     size_t ind = readIndex.load(std::memory_order_relaxed);
     size_t curHead = writeIndex.load(std::memory_order_acquire);
-    if (ind >= curHead)
+    if (ind == curHead)
       return false;
-    ele = data[ind%size];
+    ele = data[ind];
     return true;
   }
-  bool isFull() { return writeIndex.load(std::memory_order_acquire) - readIndex.load(std::memory_order_acquire) >= size; }
+  bool isFull() { return (writeIndex.load(std::memory_order_acquire) + 1u)%size == readIndex.load(std::memory_order_acquire); }
 };
 
 
