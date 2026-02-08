@@ -22,7 +22,7 @@ else
   exit 1
 fi
 
-CXXFLAGS="-std=c++17 -O2 -Wall -Wextra -g"
+CXXFLAGS="-std=c++2a -O2 -Wall -Wextra -g"
 
 echo "Compiling $SRC -> $OUT using $CXX"
 "$CXX" $CXXFLAGS -o "$OUT" "$SRC"
