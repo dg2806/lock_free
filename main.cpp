@@ -7,6 +7,53 @@
 #include <thread>
 #include <random>
 
+template<typename T>
+class Mpmc
+{
+private:
+  class Node
+  {
+    T val;
+    Node* next;
+  };
+  std::atomic<Node*> head{nullptr};
+  char padding1[248];
+  std::atomic<Node*> tail{nullptr};
+  char padding2[248];
+  Node* root;
+public:
+  Mpmc() { root = new Node(); head.load(root); tail.load(root); };
+  ~Mpmc() { cleanup(root); }
+  void cleanup(Node* node)
+  {
+    if (node->next)
+      clenaup(node->next);
+    delete node;
+  }
+  bool push(const T& t)
+  {
+    Node* next = new Node();
+    next->val = t;
+    next->next = nullptr;
+    Node* prev = head.exchange(next, std::memory_order_acq_rel);
+    prev->next = next;
+    return true;
+  }
+  bool pop(T& t)
+  {
+    Node* oldVal, next;
+    do
+    {
+      oldVal = tail.load(std::memory_order_acquire);
+      if (oldVal == head.load(std::memory_order_acquire))  return false;
+      next = oldVal->next;
+    } while (!tail.compare_exchange_strong(oldVal, next));
+    t = next->val;
+    return true;
+  }
+};
+
+
 //SPSC
 //fixed length
 template<typename T>
