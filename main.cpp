@@ -11,25 +11,23 @@ template<typename T>
 class Mpmc
 {
 private:
-  class Node
+  struct Node
   {
     T val;
     Node* next;
   };
-  std::atomic<Node*> head{nullptr};
-  char padding1[248];
-  std::atomic<Node*> tail{nullptr};
-  char padding2[248];
   Node* root;
+  char padding1[248];
+  std::atomic<Node*> head{nullptr};
+  char padding2[248];
+  std::atomic<Node*> tail{nullptr};
 public:
-  Mpmc() { root = new Node(); head.load(root); tail.load(root); };
-  ~Mpmc() { cleanup(root); }
-  void cleanup(Node* node)
+  Mpmc()
+  : root{new Node{}}
+  , head{root}
+  , tail{root}
   {
-    if (node->next)
-      clenaup(node->next);
-    delete node;
-  }
+  };
   bool push(const T& t)
   {
     Node* next = new Node();
@@ -41,14 +39,14 @@ public:
   }
   bool pop(T& t)
   {
-    Node* oldVal, next;
+    Node* oldVal; Node* n;
     do
     {
       oldVal = tail.load(std::memory_order_acquire);
-      if (oldVal == head.load(std::memory_order_acquire))  return false;
-      next = oldVal->next;
-    } while (!tail.compare_exchange_strong(oldVal, next));
-    t = next->val;
+      if (oldVal == head.load(std::memory_order_acquire) || oldVal->next == nullptr)  return false;
+      n = oldVal->next;
+    } while (!tail.compare_exchange_strong(oldVal, n));
+    t = n->val;
     return true;
   }
 };
@@ -157,7 +155,7 @@ int main()
 {
   if (false)
     testRandom();
-  if (true)
+  if (false)
   {
     Spsc<size_t> spsc(1024u);
     size_t cnt = 1024*1024;
@@ -171,6 +169,57 @@ int main()
     auto end = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
     std::cout << "Execution time: " << duration.count() << " microseconds" << std::endl;
+  }
+  if (true)
+  {
+    Mpmc<size_t> mpmc;
+    size_t cnt = 1024*1024;
+    std::vector<size_t> consumed(cnt, 0);
+    std::atomic<size_t> consumCnt{0u};
+    std::atomic<size_t> produceCnt{0u};
+    size_t num = cnt / 4;
+    auto produce = [&]()
+    {
+      for (size_t i = 0; i < num; i++)
+      {
+        size_t toInsert = produceCnt.fetch_add(1);
+        mpmc.push(toInsert);
+      }
+    };
+    auto consumeAndRecord = [&]()
+    {
+      for (size_t i = 0; i < num; i++)
+      {
+        size_t val;
+        if (mpmc.pop(val))
+        {
+          size_t loc = consumCnt.fetch_add(1);
+          consumed[loc] = val;
+        }
+      }
+    };
+    std::thread p1(produce);
+    std::thread p2(produce);
+    std::thread p3(produce);
+    std::thread c1(consumeAndRecord);
+    std::thread c2(consumeAndRecord);
+    std::thread c3(consumeAndRecord);
+    auto startTime = std::chrono::high_resolution_clock::now();
+    c1.join(), p1.join(), c2.join(), p2.join(), c3.join(), p3.join();
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - startTime);
+    std::cout << "Execution time: " << duration.count() << " microseconds" << std::endl;
+    std::cout << "produce cnt " << produceCnt.load() << std::endl;
+    std::cout << "consum cnt " << consumCnt.load() << std::endl;
+    std::sort(consumed.begin(), consumed.end());
+    size_t start = 0;
+    while (start < consumed.size() && consumed[start] == 0)
+      start++;
+    for (size_t i = start+1 ; i < consumed.size()-3; i++)
+    {
+      if (consumed[i] != consumed[i-1]+1)
+        std::cout << "error at i " << consumed[i] << " " << consumed[i-1] << std::endl;
+    }
   }
   return 0;
 }
